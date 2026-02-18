@@ -26,13 +26,15 @@ interface Payment {
   status: string;
   created_at: string;
   full_name: string;
+  mpesa_code?: string | null;
   notes?: string | null;
   unit_number?: string;
-  profiles?: { first_name: string | null; last_name: string | null } | null;
+  rent_amount?: number;
 }
 
 const statusConfig: Record<string, { label: string; icon: any; className: string }> = {
   paid:    { label: 'Paid',    icon: CheckCircle, className: 'bg-green-100 text-green-700 border-green-200' },
+  partial: { label: 'Partial', icon: Clock,       className: 'bg-blue-100 text-blue-700 border-blue-200' },
   pending: { label: 'Pending', icon: Clock,       className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
   overdue: { label: 'Overdue', icon: AlertCircle, className: 'bg-red-100 text-red-700 border-red-200' },
 };
@@ -44,7 +46,7 @@ const PaymentsManagement = () => {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [stats, setStats] = useState({ collected: 0, pending: 0, overdue: 0 });
+  const [stats, setStats] = useState({ collected: 0, balance: 0, overdue: 0 });
 
   const [form, setForm] = useState({
     tenantId: '',
@@ -55,39 +57,62 @@ const PaymentsManagement = () => {
   });
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
 
+  // Derived balance for partial payments
+  const balance =
+    selectedTenant?.unit?.rent_amount && form.status === 'partial'
+      ? Math.max(selectedTenant.unit.rent_amount - (parseFloat(form.amount) || 0), 0)
+      : 0;
+
   const { toast } = useToast();
 
   const fetchPayments = async () => {
     try {
       const { data, error } = await supabase
         .from('payments')
-        .select(`
-          id, tenant_id, amount, status, created_at, full_name, mpesa_code,
-          profiles:tenant_id (first_name, last_name)
-        `)
+        .select(`id, tenant_id, amount, status, created_at, full_name, mpesa_code`)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      // Enrich with unit number from tenant profile
+      // Enrich with unit info
       const enriched: Payment[] = await Promise.all(
         (data || []).map(async (p: any) => {
           const { data: unitData } = await supabase
             .from('units')
-            .select('unit_number')
+            .select('unit_number, rent_amount')
             .eq('tenant_id', p.tenant_id)
             .maybeSingle();
-          return { ...p, unit_number: unitData?.unit_number || '—', notes: p.mpesa_code || null };
+          return {
+            ...p,
+            unit_number: unitData?.unit_number || '—',
+            rent_amount: unitData?.rent_amount || 0,
+            notes: p.mpesa_code || null,
+          };
         })
       );
 
       setPayments(enriched);
 
       // Stats
-      const collected = enriched.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0);
-      const pending   = enriched.filter((p) => p.status === 'pending').reduce((s, p) => s + p.amount, 0);
-      const overdue   = enriched.filter((p) => p.status === 'overdue').reduce((s, p) => s + p.amount, 0);
-      setStats({ collected, pending, overdue });
+      const collected = enriched
+        .filter((p) => p.status === 'paid')
+        .reduce((s, p) => s + p.amount, 0);
+
+      // Balance = sum of (rent - paid) for partial payments
+      const partialBalance = enriched
+        .filter((p) => p.status === 'partial')
+        .reduce((s, p) => s + Math.max((p.rent_amount || 0) - p.amount, 0), 0);
+
+      // Pending = full rent owed for purely pending entries
+      const pendingTotal = enriched
+        .filter((p) => p.status === 'pending')
+        .reduce((s, p) => s + p.amount, 0);
+
+      const overdue = enriched
+        .filter((p) => p.status === 'overdue')
+        .reduce((s, p) => s + p.amount, 0);
+
+      setStats({ collected, balance: partialBalance + pendingTotal, overdue });
     } catch (error) {
       console.error('Error fetching payments:', error);
       toast({ title: 'Error', description: 'Failed to load payments', variant: 'destructive' });
@@ -128,17 +153,36 @@ const PaymentsManagement = () => {
     setForm((f) => ({ ...f, tenantId, amount: t?.unit?.rent_amount?.toString() || '' }));
   };
 
+  const handleStatusChange = (status: string) => {
+    setForm((f) => ({
+      ...f,
+      status,
+      // Reset amount to full rent when switching back to paid/pending
+      amount: status !== 'partial' && selectedTenant?.unit?.rent_amount
+        ? selectedTenant.unit.rent_amount.toString()
+        : f.amount,
+    }));
+  };
+
   const handleSave = async () => {
     if (!form.tenantId || !form.amount || !form.status || !form.paymentDate) {
       toast({ title: 'Missing fields', description: 'Please fill in all required fields.', variant: 'destructive' });
       return;
     }
+
+    const parsedAmount = parseFloat(form.amount);
+    const rentAmount = selectedTenant?.unit?.rent_amount || 0;
+
+    if (form.status === 'partial' && parsedAmount >= rentAmount) {
+      toast({ title: 'Invalid amount', description: `Partial payment must be less than KES ${rentAmount.toLocaleString()}. Use "Paid" for full payments.`, variant: 'destructive' });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const tenant = tenants.find((t) => t.id === form.tenantId);
       const fullName = `${tenant?.first_name || ''} ${tenant?.last_name || ''}`.trim() || 'Unknown';
 
-      // We need a billing_month_id; use current month or create one on the fly
       const now = new Date(form.paymentDate);
       let billingMonthId: string;
       const { data: bm } = await supabase
@@ -163,7 +207,7 @@ const PaymentsManagement = () => {
       const { error } = await supabase.from('payments').insert({
         tenant_id: form.tenantId,
         billing_month_id: billingMonthId,
-        amount: parseFloat(form.amount),
+        amount: parsedAmount,
         status: form.status,
         full_name: fullName,
         mpesa_code: form.notes || `MANUAL-${Date.now()}`,
@@ -173,7 +217,11 @@ const PaymentsManagement = () => {
 
       if (error) throw error;
 
-      toast({ title: 'Payment recorded', description: `Payment of KES ${parseFloat(form.amount).toLocaleString()} saved.` });
+      const balanceMsg = form.status === 'partial'
+        ? ` Balance remaining: KES ${Math.max(rentAmount - parsedAmount, 0).toLocaleString()}.`
+        : '';
+
+      toast({ title: 'Payment recorded', description: `KES ${parsedAmount.toLocaleString()} saved as ${form.status}.${balanceMsg}` });
       setIsAddOpen(false);
       setForm({ tenantId: '', amount: '', status: 'paid', paymentDate: new Date().toISOString().slice(0, 10), notes: '' });
       setSelectedTenant(null);
@@ -188,7 +236,11 @@ const PaymentsManagement = () => {
 
   const filtered = payments.filter((p) => {
     const q = searchTerm.toLowerCase();
-    return p.full_name.toLowerCase().includes(q) || (p.unit_number || '').toLowerCase().includes(q) || p.status.toLowerCase().includes(q);
+    return (
+      p.full_name.toLowerCase().includes(q) ||
+      (p.unit_number || '').toLowerCase().includes(q) ||
+      p.status.toLowerCase().includes(q)
+    );
   });
 
   return (
@@ -202,17 +254,17 @@ const PaymentsManagement = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">KES {stats.collected.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">From paid payments</p>
+            <p className="text-xs text-muted-foreground">From fully paid payments</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
+            <CardTitle className="text-sm font-medium">Balance Owed</CardTitle>
             <Clock className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">KES {stats.pending.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">Awaiting payment</p>
+            <div className="text-2xl font-bold text-yellow-600">KES {stats.balance.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">Pending + partial balances</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -242,7 +294,12 @@ const PaymentsManagement = () => {
           </div>
           <div className="relative mt-2">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search by tenant, unit or status…" className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input
+              placeholder="Search by tenant, unit or status…"
+              className="pl-9"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -262,7 +319,8 @@ const PaymentsManagement = () => {
                   <tr className="border-b bg-muted/40">
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tenant</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Unit</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Amount</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Paid</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Balance</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Note</th>
@@ -272,20 +330,36 @@ const PaymentsManagement = () => {
                   {filtered.map((p) => {
                     const sc = statusConfig[p.status] || statusConfig.pending;
                     const Icon = sc.icon;
+                    const bal = p.status === 'partial'
+                      ? Math.max((p.rent_amount || 0) - p.amount, 0)
+                      : 0;
                     return (
                       <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-medium">{p.full_name}</td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          <span className="flex items-center gap-1"><Home className="h-3 w-3" />{p.unit_number}</span>
+                          <span className="flex items-center gap-1">
+                            <Home className="h-3 w-3" />{p.unit_number}
+                          </span>
                         </td>
                         <td className="px-4 py-3 font-semibold">KES {(p.amount || 0).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{new Date(p.created_at).toLocaleDateString('en-KE')}</td>
+                        <td className="px-4 py-3">
+                          {p.status === 'partial' ? (
+                            <span className="text-red-600 font-medium">KES {bal.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {new Date(p.created_at).toLocaleDateString('en-KE')}
+                        </td>
                         <td className="px-4 py-3">
                           <Badge variant="outline" className={`gap-1 ${sc.className}`}>
                             <Icon className="h-3 w-3" />{sc.label}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs max-w-[140px] truncate">{p.notes || '—'}</td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs max-w-[140px] truncate">
+                          {p.notes || '—'}
+                        </td>
                       </tr>
                     );
                   })}
@@ -296,12 +370,14 @@ const PaymentsManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Add Payment Dialog */}
+      {/* Record Payment Dialog */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Plus className="h-5 w-5" /> Record New Payment</DialogTitle>
-            <DialogDescription>Manually log a payment for any tenant.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5" /> Record New Payment
+            </DialogTitle>
+            <DialogDescription>Log a payment manually for any tenant.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-1">
@@ -313,47 +389,85 @@ const PaymentsManagement = () => {
                 <SelectContent>
                   {tenants.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
-                      {t.first_name} {t.last_name} {t.unit ? `— Unit ${t.unit.unit_number}` : ''}
+                      {t.first_name} {t.last_name}
+                      {t.unit ? ` — Unit ${t.unit.unit_number}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="pf-unit">Unit</Label>
-              <Input id="pf-unit" value={selectedTenant?.unit ? `Unit ${selectedTenant.unit.unit_number}` : '—'} disabled className="bg-muted" />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="pf-amount">Amount (KES) *</Label>
-              <Input id="pf-amount" type="number" placeholder="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-            </div>
+            {/* Unit + Rent amount (auto-filled) */}
+            {selectedTenant?.unit && (
+              <div className="p-3 bg-muted rounded-lg text-sm flex items-center justify-between">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Home className="h-3 w-3" /> Unit {selectedTenant.unit.unit_number}
+                </span>
+                <span className="font-medium">
+                  Rent: KES {selectedTenant.unit.rent_amount.toLocaleString()}
+                </span>
+              </div>
+            )}
 
             <div className="space-y-1">
               <Label>Status *</Label>
-              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+              <Select value={form.status} onValueChange={handleStatusChange}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="overdue">Overdue</SelectItem>
+                  <SelectItem value="paid">Paid — Full amount received</SelectItem>
+                  <SelectItem value="partial">Partial — Part of rent paid</SelectItem>
+                  <SelectItem value="pending">Pending — Payment expected</SelectItem>
+                  <SelectItem value="overdue">Overdue — Past due date</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-1">
+              <Label htmlFor="pf-amount">Amount Paid (KES) *</Label>
+              <Input
+                id="pf-amount"
+                type="number"
+                placeholder="0"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              />
+            </div>
+
+            {/* Live balance preview for partial */}
+            {form.status === 'partial' && parseFloat(form.amount) > 0 && selectedTenant?.unit && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm flex items-center justify-between dark:bg-red-950/20 dark:border-red-900">
+                <span className="text-red-700 dark:text-red-400">Balance remaining</span>
+                <span className="font-bold text-red-700 dark:text-red-400">
+                  KES {balance.toLocaleString()}
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-1">
               <Label htmlFor="pf-date">Payment Date *</Label>
-              <Input id="pf-date" type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
+              <Input
+                id="pf-date"
+                type="date"
+                value={form.paymentDate}
+                onChange={(e) => setForm({ ...form, paymentDate: e.target.value })}
+              />
             </div>
 
             <div className="space-y-1">
               <Label htmlFor="pf-notes">Notes</Label>
-              <Textarea id="pf-notes" placeholder="e.g. M-Pesa ref, bank deposit…" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <Textarea
+                id="pf-notes"
+                placeholder="e.g. M-Pesa ref, bank deposit, cash…"
+                rows={2}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" className="flex-1" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+              <Button variant="outline" className="flex-1" onClick={() => setIsAddOpen(false)}>
+                Cancel
+              </Button>
               <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
                 {isSaving ? 'Saving…' : 'Save Payment'}
               </Button>
