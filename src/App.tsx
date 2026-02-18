@@ -18,7 +18,8 @@ const App = () => (
     <ThemeProvider
       attribute="class"
       defaultTheme="light"
-      enableSystem
+      enableSystem={false}
+      storageKey="al-mubarak-theme"
       disableTransitionOnChange
     >
       <TooltipProvider>
@@ -29,15 +30,14 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
-              <Route 
-                path="/dashboard" 
+              <Route
+                path="/dashboard"
                 element={
                   <ProtectedRoute>
                     <Dashboard />
                   </ProtectedRoute>
-                } 
+                }
               />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
