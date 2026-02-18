@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
 import { Building2, Shield, Users, CreditCard, BarChart3, Bell } from 'lucide-react';
 
@@ -28,30 +28,27 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/30">
+
       {/* Hero Section */}
       <section className="px-4 py-20">
         <div className="container mx-auto text-center space-y-8">
           <div className="mx-auto w-20 h-20 bg-gradient-to-br from-primary to-primary-light rounded-3xl flex items-center justify-center shadow-xl">
             <Building2 className="h-10 w-10 text-primary-foreground" />
           </div>
-          
+
           <div className="space-y-4">
             <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-              Property Manager
+              Al-Mubarak Estate
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto">
-              Streamline your rental management with our comprehensive platform
+              Property management, simplified.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" variant="admin" onClick={() => navigate('/auth')}>
+          <div className="flex justify-center">
+            <Button size="lg" onClick={() => navigate('/auth')}>
               <Shield className="h-5 w-5 mr-2" />
               Admin Access
-            </Button>
-            <Button size="lg" variant="tenant" onClick={() => navigate('/auth')}>
-              <Users className="h-5 w-5 mr-2" />
-              Tenant Portal
             </Button>
           </div>
         </div>
@@ -70,8 +67,8 @@ const Index = () => {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardHeader>
-                <div className="w-12 h-12 bg-admin/10 rounded-xl flex items-center justify-center mb-4">
-                  <Building2 className="h-6 w-6 text-admin" />
+                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+                  <Building2 className="h-6 w-6 text-primary" />
                 </div>
                 <CardTitle>Unit Management</CardTitle>
                 <CardDescription>
@@ -82,24 +79,24 @@ const Index = () => {
 
             <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardHeader>
-                <div className="w-12 h-12 bg-tenant/10 rounded-xl flex items-center justify-center mb-4">
-                  <Users className="h-6 w-6 text-tenant" />
+                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+                  <Users className="h-6 w-6 text-primary" />
                 </div>
-                <CardTitle>Tenant Portal</CardTitle>
+                <CardTitle>Tenant Management</CardTitle>
                 <CardDescription>
-                  Secure tenant access for payments, history, and communication
+                  Add and manage tenants manually, assign units and track lease details
                 </CardDescription>
               </CardHeader>
             </Card>
 
             <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardHeader>
-                <div className="w-12 h-12 bg-success/10 rounded-xl flex items-center justify-center mb-4">
-                  <CreditCard className="h-6 w-6 text-success" />
+                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+                  <CreditCard className="h-6 w-6 text-primary" />
                 </div>
-                <CardTitle>Payment Processing</CardTitle>
+                <CardTitle>Payment Tracking</CardTitle>
                 <CardDescription>
-                  Integrated payment system with Pesapal for easy rent collection
+                  Record and track rent payments with support for M-Pesa and manual entries
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -118,22 +115,22 @@ const Index = () => {
 
             <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardHeader>
-                <div className="w-12 h-12 bg-warning/10 rounded-xl flex items-center justify-center mb-4">
-                  <Bell className="h-6 w-6 text-warning" />
+                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+                  <Bell className="h-6 w-6 text-primary" />
                 </div>
-                <CardTitle>Automated Reminders</CardTitle>
+                <CardTitle>SMS Reminders</CardTitle>
                 <CardDescription>
-                  Send payment reminders and notifications to tenants automatically
+                  Send bulk SMS payment reminders with payment links to tenants
                 </CardDescription>
               </CardHeader>
             </Card>
 
             <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300">
               <CardHeader>
-                <div className="w-12 h-12 bg-destructive/10 rounded-xl flex items-center justify-center mb-4">
-                  <Shield className="h-6 w-6 text-destructive" />
+                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
+                  <Shield className="h-6 w-6 text-primary" />
                 </div>
-                <CardTitle>Secure Access</CardTitle>
+                <CardTitle>Secure Admin Access</CardTitle>
                 <CardDescription>
                   Role-based security ensuring data privacy and proper access control
                 </CardDescription>
@@ -148,16 +145,17 @@ const Index = () => {
         <div className="container mx-auto text-center">
           <Card className="max-w-2xl mx-auto border-0 shadow-xl bg-card/80 backdrop-blur">
             <CardHeader className="pb-8">
-              <CardTitle className="text-3xl">Get Started Today</CardTitle>
+              <CardTitle className="text-3xl">Ready to manage your property?</CardTitle>
               <CardDescription className="text-lg">
-                Join our rental management platform and streamline your property operations
+                Sign in to access the Al-Mubarak Estate admin dashboard
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <Button size="lg" variant="default" onClick={() => navigate('/auth')} className="shadow-lg">
-                Access Portal
+            <div className="pb-8">
+              <Button size="lg" onClick={() => navigate('/auth')} className="shadow-lg">
+                <Shield className="h-5 w-5 mr-2" />
+                Sign In
               </Button>
-            </CardContent>
+            </div>
           </Card>
         </div>
       </section>
@@ -165,9 +163,10 @@ const Index = () => {
       {/* Footer */}
       <footer className="border-t bg-card/30 backdrop-blur px-4 py-8">
         <div className="container mx-auto text-center text-muted-foreground">
-          <p>&copy; 2024 Property Manager. Professional rental management solution.</p>
+          <p>&copy; {new Date().getFullYear()} Al-Mubarak Estate. All rights reserved.</p>
         </div>
       </footer>
+
     </div>
   );
 };
