@@ -95,7 +95,7 @@ const PaymentsManagement = () => {
 
       // Stats
       const collected = enriched
-        .filter((p) => p.status === 'paid')
+        .filter((p) => p.status === 'paid' || p.status === 'partial')
         .reduce((s, p) => s + p.amount, 0);
 
       // Balance = sum of (rent - paid) for partial payments
